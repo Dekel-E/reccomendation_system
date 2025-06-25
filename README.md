@@ -100,3 +100,5 @@ This script will:
 -   Read the MSE from `mse.txt`, append its own MSE on a new line, and rename the file to `me.txt`, which is the final submission file for the error scores.
 
 After running both scripts, your directory will contain all the required output files.
+
+##Todo part 2 - later
