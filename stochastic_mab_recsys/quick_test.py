@@ -1,102 +1,45 @@
+#!/usr/bin/env python3
+"""Quick test to verify the new recommender passes Test Case 1"""
+
 import numpy as np
-from Recommender import Recommender
+from test import test_1, required_results
 from simulation import Simulation
-from test import tests, required_results
 
+# Import the new recommender (save the hybrid version as Recommender.py)
+from Recommender import Recommender
 
-def test_algorithm_variant(algorithm_name, test_case, **kwargs):
-    """Test a specific algorithm variant"""
-    class TestRecommender(Recommender):
-        def __init__(self, n_weeks, n_users, prices, budget):
-            super().__init__(n_weeks, n_users, prices, budget)
-            self.algorithm = algorithm_name
-            # Apply any additional parameters
-            for key, value in kwargs.items():
-                setattr(self, key, value)
-    
-    # Replace the Recommender class temporarily
-    import simulation
-    original_recommender = simulation.Recommender
-    simulation.Recommender = TestRecommender
-    
-    # Run simulation
-    sim = Simulation(test_case['P'], test_case['item_prices'], 
-                     test_case['budget'], test_case['n_weeks'])
+print("Testing new hybrid recommender on Test Case 1...")
+print(f"Required score: {required_results[0]}")
+print("-" * 50)
+
+# Run 5 trials
+rewards = []
+for i in range(5):
+    sim = Simulation(test_1['P'], test_1['item_prices'], 
+                     test_1['budget'], test_1['n_weeks'])
     reward = sim.simulate()
-    
-    # Restore original
-    simulation.Recommender = original_recommender
-    
-    return reward
+    rewards.append(reward)
+    print(f"Trial {i+1}: {reward}")
 
+print("-" * 50)
+print(f"Mean: {np.mean(rewards):.0f}")
+print(f"Std: {np.std(rewards):.0f}")
+print(f"Min: {np.min(rewards)}")
+print(f"Max: {np.max(rewards)}")
 
-def compare_algorithms():
-    """Compare different algorithm configurations"""
-    algorithms_to_test = [
-        ('hybrid', {}),
-        ('thompson', {}),
-        ('ucb', {'ucb_c': 1.0}),
-        ('ucb', {'ucb_c': 2.0}),
-        ('ucb', {'ucb_c': 3.0}),
-        ('hybrid', {'exploration_rounds': 30}),
-        ('hybrid', {'exploration_rounds': 100}),
-        ('greedy', {}),
-    ]
+if np.mean(rewards) >= required_results[0]:
+    print("\n✅ PASSES on average!")
+else:
+    print(f"\n❌ Still short by {required_results[0] - np.mean(rewards):.0f} on average")
     
-    print("Algorithm Performance Comparison")
-    print("=" * 60)
-    
-    for test_idx, (test_case, required) in enumerate(zip(tests, required_results)):
-        print(f"\nTest Case {test_idx + 1} (Required: {required})")
-        print("-" * 40)
-        
-        best_reward = 0
-        best_config = None
-        
-        for algo_name, params in algorithms_to_test:
-            # Run multiple times for algorithms with randomness
-            runs = 3 if algo_name in ['thompson', 'hybrid'] else 1
-            rewards = []
-            
-            for _ in range(runs):
-                reward = test_algorithm_variant(algo_name, test_case, **params)
-                rewards.append(reward)
-            
-            avg_reward = np.mean(rewards)
-            std_reward = np.std(rewards) if runs > 1 else 0
-            
-            param_str = f" {params}" if params else ""
-            print(f"{algo_name}{param_str}: {avg_reward:.0f} ± {std_reward:.0f}")
-            
-            if avg_reward > best_reward:
-                best_reward = avg_reward
-                best_config = (algo_name, params)
-        
-        print(f"\nBest: {best_config[0]} with reward {best_reward:.0f}")
-        print(f"Exceeds requirement: {'YES' if best_reward >= required else 'NO'}")
+# Also test on the other cases to ensure we didn't break anything
+print("\n\nQuick check on other test cases:")
+from test import test_2, test_3
 
+sim2 = Simulation(test_2['P'], test_2['item_prices'], test_2['budget'], test_2['n_weeks'])
+reward2 = sim2.simulate()
+print(f"Test 2: {reward2} (required: {required_results[1]}) {'✅' if reward2 >= required_results[1] else '❌'}")
 
-def analyze_test_cases():
-    """Analyze the characteristics of each test case"""
-    print("\nTest Case Analysis")
-    print("=" * 60)
-    
-    for idx, test in enumerate(tests):
-        print(f"\nTest {idx + 1}:")
-        print(f"  Users: {test['P'].shape[0]}")
-        print(f"  Items: {test['P'].shape[1]}")
-        print(f"  Budget: {test['budget']}")
-        print(f"  Weeks: {test['n_weeks']}")
-        print(f"  Prices: {test['item_prices']}")
-        print(f"  Items per week (max): {test['budget'] // np.min(test['item_prices'])}")
-        print(f"  Avg probability: {np.mean(test['P']):.3f}")
-        print(f"  Max probabilities by item: {np.max(test['P'], axis=0)}")
-
-
-if __name__ == "__main__":
-    # First analyze test cases
-    analyze_test_cases()
-    
-    # Then compare algorithms
-    print("\n" * 2)
-    compare_algorithms()
+sim3 = Simulation(test_3['P'], test_3['item_prices'], test_3['budget'], test_3['n_weeks'])
+reward3 = sim3.simulate()
+print(f"Test 3: {reward3} (required: {required_results[2]}) {'✅' if reward3 >= required_results[2] else '❌'}")

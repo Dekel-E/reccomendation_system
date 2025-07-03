@@ -1,357 +1,212 @@
 import numpy as np
-from scipy import stats
 
 
 class Recommender:
     def __init__(self, n_weeks: int, n_users: int, prices: np.array, budget: int):
         self.n_rounds = n_weeks
         self.n_users = n_users
-        self.n_items = len(prices)
         self.item_prices = prices
         self.budget = budget
+        self.n_items = len(prices)
         
-        # We chose between 3 algorithm variants: thompson sampling, UCB,  hybrid approach , and greedy
-        self.algorithm = 'hybrid'  # 'thompson', 'ucb', 'hybrid', 'greedy'
+        # Detect if we have a tight budget constraint and act accordinglt
+        self.tight_budget = self._is_tight_budget()
         
-        # Initialize statistics variables
+        # Thompson Sampling parameters - adjust based on budget tightness
+        if self.tight_budget:
+            #if we run on tight budget, we want to be more conservative
+            # and avoid over-exploration, so we initialize with higher alpha and lower beta
+            self.alpha = np.ones((n_users, self.n_items)) * 3.0
+            self.beta_param = np.ones((n_users, self.n_items)) * 0.3
+        else:
+            # Standard optimistic initialization
+            # For normal budgets, we can afford more exploration
+            self.alpha = np.ones((n_users, self.n_items)) * 2.0
+            self.beta_param = np.ones((n_users, self.n_items)) * 0.5
+        
+        # Track statistics
+        self.trials = np.zeros((n_users, self.n_items))
         self.successes = np.zeros((n_users, self.n_items))
-        self.failures = np.zeros((n_users, self.n_items))
-        self.total_pulls = np.zeros((n_users, self.n_items))
         
-        # UCB parameters
-        self.ucb_c = 2.0  # Exploration parameter
+        # State tracking
+        self.round = 0
+        self.last_recommendations = None
         
-        # Thompson Sampling parameters
-        self.alpha = np.ones((n_users, self.n_items))  # Beta dist alpha
-        self.beta = np.ones((n_users, self.n_items))   # Beta dist beta
+        # Precompute affordable item sets
+        self._precompute_affordable_sets()
         
-        # Exploration parameters
-        self.round_num = 0
-        self.exploration_rounds = max(30, min(100, n_weeks // 50))  # Adaptive exploration
-        self.min_exploration_prob = 0.01
+        # UCB parameters for hybrid approach
+        self.ucb_c = 1.0 if not self.tight_budget else 0.5
         
-        # Performance tracking
-        self.recent_rewards = []
-        self.reward_window = 50
+    def _is_tight_budget(self):
+        """Check if budget constraints are tight"""
+        min_price = np.min(self.item_prices)
+        max_affordable = self.budget // min_price
+        return max_affordable <= 3 or self.budget <= np.median(self.item_prices) * 2
         
-        # Efficiency optimizations
-        self.update_frequency = 10  # Update estimates every N rounds
-        self.last_estimate_update = 0
+    def _precompute_affordable_sets(self):
+        """Precompute all affordable podcast combinations"""
+        self.affordable_sets = []
         
-        # Cache for efficiency
-        self.last_selected_items = None
-        self.estimated_probs = np.zeros((n_users, self.n_items))
+        # For very tight budgets, be more exhaustive
+        if self.tight_budget:
+            # Check all possible combinations more carefully
+            for mask in range(1, min(2**self.n_items, 1024)):
+                items = [i for i in range(self.n_items) if mask & (1 << i)]
+                if sum(self.item_prices[items]) <= self.budget:
+                    self.affordable_sets.append(np.array(items))
+        else:
+            # Standard approach for normal budgets
+            self._generate_affordable_sets_efficiently()
+    
+    def _generate_affordable_sets_efficiently(self):
+        """Generate affordable sets efficiently for normal budgets"""
+        price_order = np.argsort(self.item_prices)
         
+        # Dynamic programming approach
+        for size in range(1, min(self.n_items + 1, 10)):
+            self._add_sets_of_size(size, price_order)
+    
+    def _add_sets_of_size(self, size, price_order):
+        """Add all affordable sets of given size"""
+        def generate(idx, current_set, current_cost):
+            if len(current_set) == size:
+                if current_cost <= self.budget:
+                    self.affordable_sets.append(np.array(current_set))
+                return
+            
+            for i in range(idx, self.n_items):
+                item = price_order[i]
+                new_cost = current_cost + self.item_prices[item]
+                if new_cost <= self.budget:
+                    generate(i + 1, current_set + [item], new_cost)
+                elif len(current_set) > 0:
+                    break
+        
+        generate(0, [], 0)
+    
     def recommend(self) -> np.array:
-        self.round_num += 1
-        
-        if self.algorithm == 'thompson':
-            return self._thompson_sampling_recommend()
-        elif self.algorithm == 'ucb':
-            return self._ucb_recommend()
-        elif self.algorithm == 'hybrid':
-            return self._hybrid_recommend()
+        # Use hybrid approach for tight budgets
+        if self.tight_budget and self.round < 100:
+            return self._recommend_hybrid()
         else:
-            return self._greedy_recommend()
+            return self._recommend_thompson_sampling()
     
-    def _thompson_sampling_recommend(self):
-        """Thompson Sampling with smart budget allocation"""
-        # Sample from Beta distributions
-        sampled_probs = np.random.beta(self.alpha, self.beta)
+    def _recommend_hybrid(self):
+        """Hybrid approach combining Thompson Sampling and UCB for tight budgets"""
+        # Calculate both Thompson Sampling and UCB scores
         
-        # Select items within budget
-        selected_items = self._select_items_knapsack(sampled_probs)
+        # Thompson Sampling scores
+        sampled_probs = np.random.beta(self.alpha, self.beta_param)
         
-        # Make recommendations
-        recommendations = self._assign_items_to_users(sampled_probs, selected_items)
+        # UCB scores
+        mean_rewards = np.divide(self.successes, self.trials, 
+                                out=np.ones_like(self.successes) * 0.5, 
+                                where=self.trials!=0)
+        confidence = self.ucb_c * np.sqrt(np.log(self.round + 1) / (self.trials + 1))
+        ucb_scores = mean_rewards + confidence
         
-        return recommendations
+        # Combine scores - more weight on UCB early for faster convergence
+        if self.round < 30:
+            scores = 0.3 * sampled_probs + 0.7 * ucb_scores
+        else:
+            scores = 0.6 * sampled_probs + 0.4 * ucb_scores
+        
+        # Add small bonus for completely untried items
+        untried_bonus = (self.trials == 0) * 0.2
+        scores += untried_bonus
+        
+        return self._select_best_assignment(scores)
     
-    def _ucb_recommend(self):
-        # Calculate UCB scores
-        avg_rewards = self.successes / (self.total_pulls + 1e-10)
-        
-        # Adaptive exploration parameter
-        exploration_bonus = self.ucb_c * np.sqrt(
-            np.log(self.round_num + 1) / (self.total_pulls + 1)
-        )
-        
-        ucb_scores = avg_rewards + exploration_bonus
-        
-        # Select items within budget
-        selected_items = self._select_items_knapsack(ucb_scores)
-        
-        # Make recommendations
-        recommendations = self._assign_items_to_users(ucb_scores, selected_items)
-        
-        return recommendations
-    
-    def _hybrid_recommend(self):
-        # Combine Thompson Sampling with smart budget allocation
-        
-        # Early exploration phase
-        if self.round_num <= self.exploration_rounds:
-            return self._exploration_phase()
-        
+    def _recommend_thompson_sampling(self):
+        """Standard Thompson Sampling approach"""
         # Sample from posterior
-        sampled_probs = np.random.beta(self.alpha, self.beta)
+        sampled_probs = np.random.beta(self.alpha, self.beta_param)
         
-        # Also calculate mean estimates for stability
-        mean_probs = self.alpha / (self.alpha + self.beta)
+        # Calculate variance for exploration bonus
+        variance = (self.alpha * self.beta_param) / ((self.alpha + self.beta_param)**2 * 
+                                                     (self.alpha + self.beta_param + 1))
+        exploration_bonus = np.sqrt(variance)
         
-        # Adaptive exploration based on performance
-        if len(self.recent_rewards) >= self.reward_window:
-            recent_avg = np.mean(self.recent_rewards[-self.reward_window:])
-            older_avg = np.mean(self.recent_rewards[:-self.reward_window]) if len(self.recent_rewards) > self.reward_window else 0
+        # Adaptive exploration weight
+        if self.round < 50:
+            exploration_weight = 0.4
+        elif self.round < 150:
+            exploration_weight = 0.2
+        elif self.round < 400:
+            exploration_weight = 0.1
+        else:
+            exploration_weight = 0.05
+        
+        # Combined scores
+        scores = sampled_probs + exploration_weight * exploration_bonus
+        
+        # Bonus for untried items
+        untried_bonus = (self.trials == 0) * 0.15
+        scores += untried_bonus
+        
+        return self._select_best_assignment(scores)
+    
+    def _select_best_assignment(self, scores):
+        """Select best assignment given scores"""
+        best_value = -np.inf
+        best_assignments = None
+        
+        for item_set in self.affordable_sets:
+            # Get scores for this set
+            set_scores = scores[:, item_set]
             
-            # If performance is declining, increase exploration
-            if recent_avg < older_avg * 0.95:
-                exploration_boost = 0.2
-            else:
-                exploration_boost = 0.0
-        else:
-            exploration_boost = 0.1
-        
-        # Blend sampled and mean probabilities (more exploration early on)
-        blend_factor = max(self.min_exploration_prob, 
-                          min(0.5, (1.0 - self.round_num / self.n_rounds) + exploration_boost))
-        blended_probs = blend_factor * sampled_probs + (1 - blend_factor) * mean_probs
-        
-        # Update cached probability estimates periodically
-        if self.round_num - self.last_estimate_update >= self.update_frequency:
-            self.estimated_probs = mean_probs
-            self.last_estimate_update = self.round_num
-        
-        # Select items using expected value optimization
-        selected_items = self._select_items_advanced(blended_probs, mean_probs)
-        
-        # Make recommendations
-        recommendations = self._assign_items_to_users(blended_probs, selected_items)
-        
-        return recommendations
-    
-    def _greedy_recommend(self):
-        # Simple greedy with epsilon-greedy exploration
-        epsilon = max(self.min_exploration_prob, 
-                     1.0 - self.round_num / self.exploration_rounds)
-        
-        if np.random.random() < epsilon:
-            # Explore
-            return self._random_valid_recommendation()
-        else:
-            # Exploit
-            mean_probs = self.successes / (self.total_pulls + 1e-10)
-            selected_items = self._select_items_knapsack(mean_probs)
-            recommendations = self._assign_items_to_users(mean_probs, selected_items)
-            return recommendations
-    
-    def _exploration_phase(self):
-        """Smart exploration in early rounds"""
-        # Systematic exploration with budget awareness
-        items_to_explore = []
-        
-        # Calculate exploration priority
-        total_item_pulls = np.sum(self.total_pulls, axis=0)
-        
-        # Add small random noise to break ties
-        exploration_priority = total_item_pulls + np.random.random(self.n_items) * 0.1
-        
-        # Sort items by exploration priority (least explored first)
-        priority_order = np.argsort(exploration_priority)
-        
-        # Select items within budget, prioritizing underexplored
-        current_cost = 0
-        for item in priority_order:
-            if current_cost + self.item_prices[item] <= self.budget:
-                items_to_explore.append(item)
-                current_cost += self.item_prices[item]
-                
-                # Stop if we've used most of the budget
-                if current_cost >= self.budget * 0.9:
-                    break
-        
-        # Ensure we have at least one item
-        if not items_to_explore:
-            items_to_explore = [np.argmin(self.item_prices)]
-        
-        # Assign to users - mix random and potential-based assignment
-        if self.round_num <= self.exploration_rounds // 2:
-            # Pure random in very early rounds
-            recommendations = np.random.choice(items_to_explore, size=self.n_users)
-        else:
-            # Start using some knowledge
-            current_estimates = self.alpha / (self.alpha + self.beta)
-            recommendations = self._assign_items_to_users(current_estimates, items_to_explore)
-        
-        self.last_selected_items = items_to_explore
-        return recommendations
-    
-    def _select_items_knapsack(self, scores):
-        """Select items using knapsack-style optimization"""
-        # Calculate expected value per user per item
-        expected_values = np.sum(scores, axis=0)
-        
-        # Value per cost ratio
-        value_per_cost = expected_values / self.item_prices
-        
-        # Sort by value per cost
-        sorted_indices = np.argsort(-value_per_cost)
-        
-        selected_items = []
-        current_cost = 0
-        
-        for idx in sorted_indices:
-            if current_cost + self.item_prices[idx] <= self.budget:
-                selected_items.append(idx)
-                current_cost += self.item_prices[idx]
-        
-        # Ensure we have at least one item
-        if not selected_items:
-            cheapest_item = np.argmin(self.item_prices)
-            selected_items = [cheapest_item]
-        
-        self.last_selected_items = selected_items
-        return selected_items
-    
-    def _select_items_advanced(self, sampled_probs, mean_probs):
-        """Advanced item selection considering uncertainty and expected value"""
-        # Calculate expected value with uncertainty bonus
-        expected_values = np.sum(mean_probs, axis=0)
-        
-        # Calculate uncertainty (variance of Beta distribution)
-        uncertainty = np.sum(self.alpha * self.beta / 
-                           ((self.alpha + self.beta)**2 * (self.alpha + self.beta + 1)), 
-                           axis=0)
-        
-        # Adaptive uncertainty weight based on round
-        uncertainty_weight = max(0.2, 1.0 - self.round_num / (self.n_rounds * 0.5))
-        
-        # Combine value and uncertainty
-        selection_scores = expected_values + uncertainty_weight * np.sqrt(uncertainty)
-        
-        # Check if we should use greedy selection (late game)
-        if self.round_num > self.n_rounds * 0.8:
-            # Pure exploitation in end game
-            return self._select_items_knapsack(mean_probs)
-        
-        # Dynamic programming approximation for subset selection
-        selected_items = []
-        current_cost = 0
-        
-        # First pass: select best items with good value/cost ratio
-        value_per_cost = selection_scores / (self.item_prices + 1e-10)
-        sorted_by_efficiency = np.argsort(-value_per_cost)
-        
-        # Reserve some budget for diversity
-        efficiency_budget = self.budget * 0.7
-        
-        for item in sorted_by_efficiency:
-            if current_cost + self.item_prices[item] <= efficiency_budget:
-                selected_items.append(item)
-                current_cost += self.item_prices[item]
-        
-        # Second pass: add diverse items
-        remaining_budget = self.budget - current_cost
-        remaining_items = [i for i in range(self.n_items) if i not in selected_items]
-        
-        if remaining_budget > 0 and remaining_items:
-            # Add items with high uncertainty or underexplored
-            exploration_scores = uncertainty[remaining_items] / (self.total_pulls.sum(axis=0)[remaining_items] + 1)
-            sorted_by_exploration = remaining_items[np.argsort(-exploration_scores)]
+            # Optimal assignment
+            best_items_idx = np.argmax(set_scores, axis=1)
+            assignments = item_set[best_items_idx]
             
-            for item in sorted_by_exploration:
-                if current_cost + self.item_prices[item] <= self.budget:
-                    selected_items.append(item)
-                    current_cost += self.item_prices[item]
+            # Calculate expected value
+            expected_value = np.sum(set_scores[np.arange(self.n_users), best_items_idx])
+            
+            # For tight budgets, add stability bonus to reduce switching
+            if self.tight_budget and self.round > 50:
+                if self.last_recommendations is not None:
+                    stability_bonus = np.sum(assignments == self.last_recommendations) * 0.01
+                    expected_value += stability_bonus
+            
+            if expected_value > best_value:
+                best_value = expected_value
+                best_assignments = assignments
         
-        # Ensure we have at least one item
-        if not selected_items:
-            selected_items = [np.argmin(self.item_prices)]
+        self.round += 1
+        self.last_recommendations = best_assignments
         
-        self.last_selected_items = selected_items
-        return selected_items
-    
-    def _assign_items_to_users(self, scores, selected_items):
-        """Assign selected items to users optimally"""
-        recommendations = np.zeros(self.n_users, dtype=int)
-        
-        # Get scores only for selected items
-        selected_scores = scores[:, selected_items]
-        
-        # Assign each user their best item from selected items
-        for user in range(self.n_users):
-            best_item_idx = np.argmax(selected_scores[user])
-            recommendations[user] = selected_items[best_item_idx]
-        
-        return recommendations
-    
-    def _random_valid_recommendation(self):
-        """Generate random valid recommendation for exploration"""
-        # Random item selection within budget
-        items = list(range(self.n_items))
-        np.random.shuffle(items)
-        
-        selected_items = []
-        current_cost = 0
-        
-        for item in items:
-            if current_cost + self.item_prices[item] <= self.budget:
-                selected_items.append(item)
-                current_cost += self.item_prices[item]
-                if current_cost >= self.budget * 0.8:  # Use most of budget
-                    break
-        
-        if not selected_items:
-            selected_items = [np.argmin(self.item_prices)]
-        
-        # Random assignment
-        recommendations = np.random.choice(selected_items, size=self.n_users)
-        self.last_selected_items = selected_items
-        
-        return recommendations
+        return best_assignments
     
     def update(self, results: np.array):
-        """Update statistics based on user feedback"""
-        # Get recommendations from last round
-        if hasattr(self, '_last_recommendations'):
-            recommendations = self._last_recommendations
-        else:
-            # Reconstruct from results if needed
+        """Update beliefs based on observed results"""
+        if self.last_recommendations is None:
             return
         
-        # Track performance
-        total_reward = np.sum(results)
-        self.recent_rewards.append(total_reward)
+        # Vectorized update
+        user_indices = np.arange(self.n_users)
+        item_indices = self.last_recommendations
         
-        # Keep window size manageable
-        if len(self.recent_rewards) > self.reward_window * 3:
-            self.recent_rewards = self.recent_rewards[-self.reward_window * 2:]
+        # Update trials and successes
+        self.trials[user_indices, item_indices] += 1
+        self.successes[user_indices, item_indices] += results
         
-        # Update statistics
-        for user in range(self.n_users):
-            item = recommendations[user]
+        # Update Beta parameters
+        self.alpha[user_indices, item_indices] += results
+        self.beta_param[user_indices, item_indices] += (1 - results)
+        
+        # For tight budgets, boost learning for high-performing items
+        if self.tight_budget and self.round > 20:
+            # Identify items with high success rates
+            success_rates = np.divide(self.successes, self.trials, 
+                                    out=np.zeros_like(self.successes), 
+                                    where=self.trials > 5)
             
-            if results[user] == 1:
-                self.successes[user, item] += 1
-                self.alpha[user, item] += 1
-            else:
-                self.failures[user, item] += 1
-                self.beta[user, item] += 1
-            
-            self.total_pulls[user, item] += 1
-    
-    def recommend(self) -> np.array:
-        """Override to save recommendations"""
-        self.round_num += 1
-        
-        if self.algorithm == 'thompson':
-            recommendations = self._thompson_sampling_recommend()
-        elif self.algorithm == 'ucb':
-            recommendations = self._ucb_recommend()
-        elif self.algorithm == 'hybrid':
-            recommendations = self._hybrid_recommend()
-        else:
-            recommendations = self._greedy_recommend()
-        
-        self._last_recommendations = recommendations
-        return recommendations
+            # Boost confidence for consistently good items
+            for user in range(self.n_users):
+                for item in range(self.n_items):
+                    if success_rates[user, item] > 0.7 and self.trials[user, item] > 10:
+                        # Increase confidence by reducing uncertainty
+                        boost = 0.1
+                        self.alpha[user, item] *= (1 + boost)
+                        self.beta_param[user, item] *= (1 - boost * 0.5)

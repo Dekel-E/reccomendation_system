@@ -1,5 +1,5 @@
 import time
-from test import test_1
+from test import test_1,test_2,test_3
 
 from Recommender import Recommender
 import numpy as np
@@ -106,4 +106,6 @@ class Simulation():
     
 if __name__ == '__main__':
     simulation = Simulation(test_1['P'], test_1['item_prices'], test_1['budget'], test_1['n_weeks'])
+    print(f'Reward = {simulation.simulate()}')
+    simulation = Simulation(test_2['P'], test_2['item_prices'], test_2['budget'], test_2['n_weeks'])
     print(f'Reward = {simulation.simulate()}')
