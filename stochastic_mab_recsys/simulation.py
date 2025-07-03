@@ -105,7 +105,26 @@ class Simulation():
         return reward
     
 if __name__ == '__main__':
-    simulation = Simulation(test_1['P'], test_1['item_prices'], test_1['budget'], test_1['n_weeks'])
-    print(f'Reward = {simulation.simulate()}')
-    simulation = Simulation(test_2['P'], test_2['item_prices'], test_2['budget'], test_2['n_weeks'])
-    print(f'Reward = {simulation.simulate()}')
+    test_1_res = []
+    test_2_res = []
+    test_3_res = []
+    for i in range(30):
+        simulation = Simulation(test_1['P'], test_1['item_prices'], test_1['budget'], test_1['n_weeks'])
+        reward = simulation.simulate()
+        test_1_res.append(reward)
+        print(f'Test 1 trial {i+1} reward: {reward}')
+        
+        # simulation = Simulation(test_2['P'], test_2['item_prices'], test_2['budget'], test_2['n_weeks'])
+        # reward = simulation.simulate()
+        # test_2_res.append(reward)
+        # print(f'Test 2 trial {i+1} reward: {reward}')
+        # simulation = Simulation(test_3['P'], test_3['item_prices'], test_3['budget'], test_3['n_weeks'])
+        # reward = simulation.simulate()
+        # test_3_res.append(reward)
+        # print(f'Test 3 trial {i+1} reward: {reward}')
+
+       
+    
+    print(f'Test 1 results: mean: {np.mean(test_1_res)}, std: {np.std(test_1_res)}') 
+    # print(f'Test 2 results mean: {np.mean(test_2_res)} std: {np.std(test_2_res)}')  
+    # print(f'Test 3 results mean: {np.mean(test_3_res)} std: {np.std(test_3_res)}')

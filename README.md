@@ -1,21 +1,27 @@
-# Recommendation System Models: Baseline & SVD
+# Recommendation System Models: Complete Implementation
 
-This project contains Python implementations of two fundamental collaborative filtering algorithms for predicting movie ratings, developed as part of a university assignment on E-Commerce.
+This project contains Python implementations of multiple recommendation system approaches, developed as part of a university assignment on E-Commerce. The project is divided into two main parts, each exploring different aspects of recommendation systems.
 
 ## Project Overview
 
-The goal of this project is to predict user ratings for movies on a scale of 1 to 5. Two different models are implemented to achieve this:
+This comprehensive recommendation system project implements three different approaches:
 
-1.  **Baseline Model:** A model based on user and item biases.
-2.  **Matrix Factorization Model:** A model using Singular Value Decomposition (SVD) to find latent factors.
+**Part 1: Collaborative Filtering (Bias-based Recommendation System)**
+1. **Baseline Model:** A model based on user and item biases
+2. **Matrix Factorization Model:** A model using Singular Value Decomposition (SVD) to find latent factors
 
-The performance of each model is evaluated using the Mean Squared Error (MSE) on the training data.
+**Part 2: Multi-Armed Bandit Recommendation System**
+3. **Stochastic MAB System:** A budget-constrained recommendation system using Thompson Sampling for exploration vs exploitation
+
+
 
 ---
 
 ## Algorithms Implemented
 
-### Task 1: Baseline Model with User/Item Biases (`task1.py`)
+## Part 1: Collaborative Filtering Models (Bias-based Recommendation System)
+
+### Task 1: Baseline Model with User/Item Biases (`biases_recsys/task1.py`)
 
 This model predicts a rating by starting with a global average and then adding learned biases for each user and item. The prediction formula is:
 
@@ -31,7 +37,7 @@ The biases are found by solving a regularized least-squares problem to minimize 
 
 $$ L = \sum_{(u,i) \in \text{train}} (r_{u,i} - (\mu + b_u + b_i))^2 + \lambda(\sum_{u}b_u^2 + \sum_{i}b_i^2) $$
 
-### Task 2: Singular Value Decomposition (SVD) (`task2.py`)
+### Task 2: Singular Value Decomposition (SVD) (`biases_recsys/task2.py`)
 
 This model uses matrix factorization to find latent features that explain the observed ratings.
 
@@ -39,19 +45,68 @@ This model uses matrix factorization to find latent features that explain the ob
 2.  **Low-Rank Approximation:** A sparse SVD is performed on the matrix to decompose it into a lower-dimensional space with a rank of **k=10**.
 3.  **Prediction:** The original matrix is reconstructed from its low-rank components. This new, dense matrix contains the predicted ratings for all user-item pairs.
 
+## Part 2: Multi-Armed Bandit Recommendation System
+
+### Stochastic MAB with Budget Constraints (`stochastic_mab_recsys/`)
+
+This advanced recommendation system tackles the **exploration vs exploitation** problem using **Thompson Sampling**, a Bayesian approach to multi-armed bandits. The system recommends items to users while respecting budget constraints.
+
+#### Key Features:
+
+**Thompson Sampling with Beta Distributions:**
+- Maintains Beta(α, β) distributions for each user-item pair
+- Naturally balances exploration (trying new items) vs exploitation (using known good items)
+- Updates beliefs using Bayesian inference based on success/failure feedback
+
+**Adaptive Exploration Strategy:**
+- Adjusts exploration intensity based on budget tightness
+- Tight budgets → more exploitation (less risky)
+- Loose budgets → more exploration (can afford mistakes)
+
+**Budget-Constrained Optimization:**
+- Precomputes all affordable item combinations
+- Uses smart heuristics for large item catalogs
+- Assigns items to users optimally within budget constraints
+
+**Key Components:**
+- `Recommender.py`: Main Thompson Sampling implementation
+- `UCBRecommender.py`: Upper Confidence Bound alternative approach
+- `simulation.py`: Framework for testing and comparing algorithms
+- `run_tests.py`: Automated testing and evaluation
+
+#### Algorithm Flow:
+1. **Initialization**: Set up Beta priors based on budget analysis
+2. **Recommendation**: Sample from Beta distributions and solve assignment problem
+3. **Feedback**: Observe success/failure results
+4. **Update**: Bayesian update of Beta parameters
+5. **Repeat**: Continue learning and improving over time
+
+This approach is particularly valuable for:
+- E-commerce platforms with marketing budgets
+- Content recommendation with bandwidth constraints  
+- Resource allocation problems
+- Any scenario requiring online learning with constraints
+
 ---
 
 ## File Structure
 
 ```
 .
-├── train.csv           # Training dataset with user ratings
-├── test.csv            # Test dataset with user-item pairs for prediction
-├── task1.py            # Script for the Baseline Model
-├── task2.py            # Script for the SVD Model
-├── pred1.csv           # (Generated) Predictions from task1.py
-├── pred2.csv           # (Generated) Predictions from task2.py
-└── me.txt              # (Generated) Final MSE scores for both tasks
+├── biases_recsys/              # Part 1: Collaborative Filtering Models
+│   ├── train.csv              # Training dataset with user ratings
+│   ├── test.csv               # Test dataset for prediction
+│   ├── task1.py               # Baseline Model implementation
+│   ├── task2.py               # SVD Model implementation
+│
+├── stochastic_mab_recsys/      # Part 2: Multi-Armed Bandit System
+│   ├── Recommender.py         # Main Thompson Sampling implementation
+│   ├── simulation.py          # Testing framework
+│   ├── run_tests.py           # Automated evaluation
+│   ├── test.py                # Unit tests
+│   ├── test_2.py              # Additional testing
+│
+├── README.md                   # This file
 ```
 
 ---
@@ -60,11 +115,16 @@ This model uses matrix factorization to find latent features that explain the ob
 
 The project requires the following Python libraries:
 
+**For Part 1 (Collaborative Filtering):**
 -   `pandas`
 -   `numpy`
 -   `scipy`
 
-You can install them using pip:
+**For Part 2 (Multi-Armed Bandit):**
+-   `numpy`
+-   `itertools` (built-in)
+
+You can install the required packages using pip:
 ```bash
 pip install pandas numpy scipy
 ```
@@ -73,32 +133,74 @@ pip install pandas numpy scipy
 
 ## How to Run
 
-To run the models and generate the output files, follow these steps in order.
+### Part 1: Collaborative Filtering Models
+
+To run the bias-based recommendation models, navigate to the `biases_recsys/` directory and follow these steps:
 
 **1. Run the Baseline Model (Task 1):**
 
-Execute the `task1.py` script from your terminal. Make sure `train.csv` and `test.csv` are in the same directory.
-
 ```bash
+cd biases_recsys
 python task1.py
 ```
 
-This will generate two files:
--   `pred1.csv`: The rating predictions for the test set.
--   `mse.txt`: A temporary file containing the MSE of the baseline model.
+This will generate:
+-   `pred1.csv`: Rating predictions for the test set
+-   `mse.txt`: MSE of the baseline model
 
 **2. Run the SVD Model (Task 2):**
-
-Next, execute the `task2.py` script.
 
 ```bash
 python task2.py
 ```
 
-This script will:
--   Generate `pred2.csv` with the SVD model's predictions.
--   Read the MSE from `mse.txt`, append its own MSE on a new line, and rename the file to `me.txt`, which is the final submission file for the error scores.
+This will generate:
+-   `pred2.csv`: SVD model predictions
+-   `me.txt`: Final MSE scores for both models
 
-After running both scripts, your directory will contain all the required output files.
+### Part 2: Multi-Armed Bandit System
 
-##Todo part 2 - later
+To run the stochastic MAB recommendation system, navigate to the `stochastic_mab_recsys/` directory:
+
+**1. Run Individual Tests:**
+
+```bash
+cd stochastic_mab_recsys
+python test.py
+```
+
+**2. Run Comprehensive Evaluation:**
+
+```bash
+python run_tests.py
+```
+
+**3. Run Custom Simulation:**
+
+```bash
+python simulation.py
+```
+
+**Key Files to Examine:**
+- `Recommender.py`: The main Thompson Sampling implementation with detailed documentation
+- `ALGORITHM_EXPLANATION.md`: Comprehensive guide to understanding the algorithm
+- `simulation.py`: Framework for testing different scenarios
+
+## Educational Value
+
+This project demonstrates:
+
+**Part 1 - Collaborative Filtering:**
+- Matrix factorization techniques
+- Bias modeling in recommendation systems
+- Regularized optimization
+- SVD for dimensionality reduction
+
+**Part 2 - Multi-Armed Bandit:**
+- Bayesian inference and Thompson Sampling
+- Exploration vs exploitation trade-offs
+- Budget-constrained optimization
+- Online learning algorithms
+- Combinatorial optimization under constraints
+
+Both parts showcase different paradigms in recommendation systems - from traditional collaborative filtering to modern online learning approaches.
