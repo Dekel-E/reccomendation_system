@@ -1,110 +1,102 @@
-# quick_test_fixed.py
-import subprocess
-import time
-import os
+import numpy as np
+from Recommender import Recommender
+from simulation import Simulation
+from test import tests, required_results
 
-print("Quick Automated Testing")
-print("="*60)
 
-# Get current directory
-current_dir = os.getcwd()
-print(f"Current directory: {current_dir}")
-
-# Check if simulation.py exists
-if not os.path.exists("simulation.py"):
-    print("ERROR: simulation.py not found in current directory!")
-    print("Make sure you run this script from the same folder as simulation.py")
-    print("\nNavigate to the correct folder:")
-    print("cd D:\\Coding\\reccomendation_system\\stochastic_mab_recsys")
-    exit(1)
-
-print("Files found. Starting tests...\n")
-
-def run_simulation(description):
-    """Run simulation and return the reward"""
-    print(f"\nTesting: {description}")
-    print("Running simulation.py...")
+def test_algorithm_variant(algorithm_name, test_case, **kwargs):
+    """Test a specific algorithm variant"""
+    class TestRecommender(Recommender):
+        def __init__(self, n_weeks, n_users, prices, budget):
+            super().__init__(n_weeks, n_users, prices, budget)
+            self.algorithm = algorithm_name
+            # Apply any additional parameters
+            for key, value in kwargs.items():
+                setattr(self, key, value)
     
-    # Run simulation.py using full Python path
-    import sys
-    python_path = sys.executable
+    # Replace the Recommender class temporarily
+    import simulation
+    original_recommender = simulation.Recommender
+    simulation.Recommender = TestRecommender
     
-    result = subprocess.run([python_path, "simulation.py"], 
-                          capture_output=True, text=True)
+    # Run simulation
+    sim = Simulation(test_case['P'], test_case['item_prices'], 
+                     test_case['budget'], test_case['n_weeks'])
+    reward = sim.simulate()
     
-    # Extract reward from output
-    output = result.stdout
-    if "Reward =" in output:
-        reward_line = output.split("Reward =")[-1].strip()
-        try:
-            reward = int(reward_line)
-            print(f"Result: {reward}")
-            return reward
-        except:
-            print("Could not parse reward from:", reward_line)
-            print("Full output:", output)
-            return 0
-    else:
-        print("Error running simulation")
-        if result.stderr:
-            print("Error:", result.stderr)
-        if result.stdout:
-            print("Output:", result.stdout)
-        return 0
+    # Restore original
+    simulation.Recommender = original_recommender
+    
+    return reward
 
-# Test different configurations
-print("\nSTEP 1: Baseline")
-input("Press Enter to run baseline test...")
-baseline = run_simulation("Baseline configuration")
 
-print("\n" + "="*60)
-print("STEP 2: Test exploration periods")
-print("\nNow modify your Recommender.py:")
-print("Change: if self.current_round < X:")
-print("Where X = 20")
-input("\nPress Enter after making the change...")
-score_20 = run_simulation("Exploration period = 20")
+def compare_algorithms():
+    """Compare different algorithm configurations"""
+    algorithms_to_test = [
+        ('hybrid', {}),
+        ('thompson', {}),
+        ('ucb', {'ucb_c': 1.0}),
+        ('ucb', {'ucb_c': 2.0}),
+        ('ucb', {'ucb_c': 3.0}),
+        ('hybrid', {'exploration_rounds': 30}),
+        ('hybrid', {'exploration_rounds': 100}),
+        ('greedy', {}),
+    ]
+    
+    print("Algorithm Performance Comparison")
+    print("=" * 60)
+    
+    for test_idx, (test_case, required) in enumerate(zip(tests, required_results)):
+        print(f"\nTest Case {test_idx + 1} (Required: {required})")
+        print("-" * 40)
+        
+        best_reward = 0
+        best_config = None
+        
+        for algo_name, params in algorithms_to_test:
+            # Run multiple times for algorithms with randomness
+            runs = 3 if algo_name in ['thompson', 'hybrid'] else 1
+            rewards = []
+            
+            for _ in range(runs):
+                reward = test_algorithm_variant(algo_name, test_case, **params)
+                rewards.append(reward)
+            
+            avg_reward = np.mean(rewards)
+            std_reward = np.std(rewards) if runs > 1 else 0
+            
+            param_str = f" {params}" if params else ""
+            print(f"{algo_name}{param_str}: {avg_reward:.0f} ± {std_reward:.0f}")
+            
+            if avg_reward > best_reward:
+                best_reward = avg_reward
+                best_config = (algo_name, params)
+        
+        print(f"\nBest: {best_config[0]} with reward {best_reward:.0f}")
+        print(f"Exceeds requirement: {'YES' if best_reward >= required else 'NO'}")
 
-print("\nChange X to 30")
-input("Press Enter after making the change...")
-score_30 = run_simulation("Exploration period = 30")
 
-print("\nChange X to 15")
-input("Press Enter after making the change...")
-score_15 = run_simulation("Exploration period = 15")
+def analyze_test_cases():
+    """Analyze the characteristics of each test case"""
+    print("\nTest Case Analysis")
+    print("=" * 60)
+    
+    for idx, test in enumerate(tests):
+        print(f"\nTest {idx + 1}:")
+        print(f"  Users: {test['P'].shape[0]}")
+        print(f"  Items: {test['P'].shape[1]}")
+        print(f"  Budget: {test['budget']}")
+        print(f"  Weeks: {test['n_weeks']}")
+        print(f"  Prices: {test['item_prices']}")
+        print(f"  Items per week (max): {test['budget'] // np.min(test['item_prices'])}")
+        print(f"  Avg probability: {np.mean(test['P']):.3f}")
+        print(f"  Max probabilities by item: {np.max(test['P'], axis=0)}")
 
-# Find best
-scores = {'15': score_15, '20': score_20, '30': score_30}
-best_exploration = max(scores, key=scores.get)
-print(f"\nBest exploration period: {best_exploration} (score: {scores[best_exploration]})")
 
-print("\n" + "="*60)
-print("STEP 3: Test initial priors")
-print(f"\nKeep exploration at {best_exploration}")
-print("Now test alpha/beta initialization:")
-
-print("\nSet: alpha = 2.0, beta = 0.5")
-input("Press Enter after making the change...")
-score_optimistic = run_simulation("Optimistic priors (2.0, 0.5)")
-
-print("\nSet: alpha = 1.5, beta = 1.0")
-input("Press Enter after making the change...")
-score_balanced = run_simulation("Balanced priors (1.5, 1.0)")
-
-# Summary
-print("\n" + "="*60)
-print("SUMMARY OF RESULTS:")
-print(f"Baseline: {baseline}")
-print(f"Exploration 15: {score_15}")
-print(f"Exploration 20: {score_20}")
-print(f"Exploration 30: {score_30}")
-print(f"Optimistic priors: {score_optimistic}")
-print(f"Balanced priors: {score_balanced}")
-
-best_score = max(baseline, score_15, score_20, score_30, score_optimistic, score_balanced)
-print(f"\nBest score achieved: {best_score}")
-
-if best_score >= 7250:
-    print("✓ Congratulations! You've passed the threshold!")
-else:
-    print(f"Still {7250 - best_score} points short. Try more aggressive parameters.")
+if __name__ == "__main__":
+    # First analyze test cases
+    analyze_test_cases()
+    
+    # Then compare algorithms
+    print("\n" * 2)
+    compare_algorithms()
