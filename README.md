@@ -1,6 +1,14 @@
 # Recommendation System Models: Complete Implementation
 
+![Python Badge](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![Bandit Algorithm Badge](https://img.shields.io/badge/Bandit_Algorithm-D16A2E?style=for-the-badge&logo=git&logoColor=white)![SciPy Badge](https://img.shields.io/badge/SciPy-8CAAE6?style=for-the-badge&logo=scipy&logoColor=white)![NumPy Badge](https://img.shields.io/badge/Numpy-013243?style=for-the-badge&logo=numpy&logoColor=white)
+
+
+
+
+
+
 This project contains Python implementations of multiple recommendation system approaches, developed as part of a university assignment on E-Commerce. The project is divided into two main parts, each exploring different aspects of recommendation systems.
+Future techion students - Enjoy , dont blindcopy this please
 
 ## Project Overview
 
