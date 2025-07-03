@@ -70,7 +70,6 @@ This advanced recommendation system tackles the **exploration vs exploitation** 
 
 **Key Components:**
 - `Recommender.py`: Main Thompson Sampling implementation
-- `UCBRecommender.py`: Upper Confidence Bound alternative approach
 - `simulation.py`: Framework for testing and comparing algorithms
 - `run_tests.py`: Automated testing and evaluation
 
