@@ -8,7 +8,8 @@
 
 
 This project contains Python implementations of multiple recommendation system approaches, developed as part of a university assignment on E-Commerce. The project is divided into two main parts, each exploring different aspects of recommendation systems.
-Future techion students - Enjoy , dont blindcopy this please
+
+Future Technion students - if you get this as recycled task, Enjoy :*
 
 ## Project Overview
 
